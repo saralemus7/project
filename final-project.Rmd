@@ -1,0 +1,224 @@
+---
+title: "Understanding Traffic Collisions in Los Angeles County"
+subtitle: "STA 440 Final Project"
+author: "Sara Lemus"
+output: pdf_document
+---
+
+# Introduction 
+
+The year 2019 in Los Angeles was a particularly troubling year in terms of car accidents: the LAPD reported that there were 236 traffic deaths and over 54,000 accidents in the year alone, with a 32% increase in fatal crashes over the last 5 years [1]. Fatal and severe traffic accidents not only devastate the lives of those who are involved, but also impact communities on both a local and national scale. A 2015 study found that the total cost of motor vehicle accidents in the United States was $242 billion, which includes costs such as hospitalization, property damage, and unemployment [4].
+
+There have been initiatives to reduce the rising number of traffic fatalities in Los Angeles. In 2015, Los Angeles mayor Eric Garcetti launched a project known as Vision Zero, which aims to eliminate traffic deaths completely by the year 2025 [2]. The initiative uses CHP data to inform various policies, such as establishing traffic education programs and identifying and monitoring dangerous intersections in Los Angeles. Although it is a lofty goal to prevent all traffic deaths by the year 2025, further analyses of traffic data can provide a better understanding of the causes of collisions as well as improve or implement polices to make the roads safer for all drivers. 
+
+This analysis examines traffic data from motor vehicle crashes from Los Angeles county in the year 2019. There are two main goals for this analysis specifically: 
+
+* Understand if certain groups of people are overrepresented in car accidents
+* Build a model to predict whether or not a crash will be fatal or severe
+
+Previous literature has researched which factors contribute to car accidents. One comprehensive meta-analysis from 2019 found that factors such as weather, traffic congestion, and time of day may all be related to severe accidents. In terms of driver characteristics, factors such as driver sobriety, car type, age, and driving behavior also contributed to accidents [3]. Although the dataset being used for this analysis does not contain spatio-temporal traffic data, we will examine some of the other factors mentioned in the report to understand to what extent they contribute to Los Angeles car accidents.
+
+
+## About the Data 
+
+The dataset was accessed from the Statewide Integrated Traffic Records System (SWITRS), a database which is directly managed by the CHP (California Highway Patrol). Researchers at UC Berkeley created an online tool which allows users to filter through the extensive database (which contains data on all California counties through numerous years) and retrieve certain subsets of the data. There are two datasets being used for this analysis specifically. One is the collisions dataset, which has about 40,000 rows and contains information on various factors relating to the crash, such as crash date, time, weather conditions, and reason for the crash. The second data set contains information on the parties involved in the crash. It contains about 90,000 rows (as many crashes have multiple parties involved) and specifies demographic and situational information about the parties involved in the collision, such as age, gender, and race.
+
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = FALSE, message = FALSE, warning = FALSE)
+knitr::opts_chunk$set(fig.width=10, fig.height=6) 
+```
+
+```{r}
+library(tidyverse)
+library(dplyr)
+library(broom)
+library(kableExtra)
+```
+
+```{r}
+col <- read.csv("Collisions.csv")
+parties <- read.csv("Parties.csv")
+#vict <- read.csv("Victims.csv")
+```
+
+```{r}
+#recoding levels of variables for better analysis 
+col <- col %>% 
+  mutate(DAY_OF_WEEK = case_when(DAY_OF_WEEK == 1 ~ "Monday", 
+                                 DAY_OF_WEEK == 2 ~ "Tuesday",
+                                 DAY_OF_WEEK == 3 ~ "Wednesday",
+                                 DAY_OF_WEEK == 4 ~ "Thursday",
+                                 DAY_OF_WEEK == 5 ~ "Friday",
+                                 DAY_OF_WEEK == 6 ~ "Saturday",
+                                 DAY_OF_WEEK == 7 ~ "Sunday"))
+```
+
+```{r}
+col <- col %>% 
+  mutate(WEATHER_1 = case_when(WEATHER_1 == "A" ~ "Clear",
+                               WEATHER_1 == "B" ~ "Cloudy",
+                               WEATHER_1 == "C" ~ "Raining",
+                               WEATHER_1 == "D" ~ "Snowing",
+                               WEATHER_1 == "E" ~ "Fog",
+                               WEATHER_1 == "F" ~ "Other",
+                               WEATHER_1 == "G" ~ "Wind",
+                               TRUE ~ "Not stated"))
+```
+
+```{r}
+col <- col %>% 
+  mutate(COLLISION_SEVERITY = case_when(COLLISION_SEVERITY == 1 ~ "Fatal",
+                                        COLLISION_SEVERITY == 2 ~ "Injury (Severe)",
+                                        COLLISION_SEVERITY == 3 ~ "Injury (Other Visible)",
+                                        COLLISION_SEVERITY == 4 ~ "Injury (Complaint of Pain)",
+                                        COLLISION_SEVERITY == 0 ~ "Property Damage Only"))
+```
+
+```{r}
+col <- col %>% 
+  mutate(COL_SF = case_when(COLLISION_SEVERITY == "Fatal" ~ "Fatal/Severe",
+                            COLLISION_SEVERITY == "Injury (Severe)" ~ "Fatal/Severe",
+                            COLLISION_SEVERITY == "Injury (Other Visible)" ~ "Not Fatal/Severe",
+                            COLLISION_SEVERITY == "Injury (Complaint of Pain)" ~ "Not Fatal/Severe",
+                            COLLISION_SEVERITY == "Property Damage Only" ~ "Not Fatal/Severe"))
+```
+
+
+```{r}
+col <- col %>% 
+  mutate(TYPE_OF_COLLISION = case_when(TYPE_OF_COLLISION == "A" ~ "Head-on",
+                                        TYPE_OF_COLLISION == "B" ~ "Sideswipe",
+                                        TYPE_OF_COLLISION == "C" ~ "Rear End",
+                                        TYPE_OF_COLLISION == "D" ~ "Broadside",
+                                        TYPE_OF_COLLISION == "E" ~ "Hit object", 
+                                        TYPE_OF_COLLISION == "E" ~ "Overturned",
+                                        TYPE_OF_COLLISION == "E" ~ "Vehicle/Pedestrian",
+                                        TYPE_OF_COLLISION == "H" ~ "Other",
+                                       TRUE ~ "Not stated"))
+```
+
+```{r}
+col <- col %>% 
+  mutate(ROAD_SURFACE = case_when(ROAD_SURFACE == "A" ~ "Dry",
+                                  ROAD_SURFACE == "B" ~ "Wet",
+                                  ROAD_SURFACE == "C" ~ "Snowy or Icy",
+                                  ROAD_SURFACE == "D" ~ "Slippery (Muddy, Oily, etc.)",
+                                  TRUE ~ "Not stated"))
+```
+
+
+```{r}
+col <- col %>% 
+  mutate(LIGHTING_NEW = case_when(LIGHTING == "A" ~ "Daylight",
+                                  LIGHTING == "B" ~ "Dusk/Dawn",
+                                  LIGHTING == "C" | LIGHTING == "D" | LIGHTING == "E" ~ "Dark",
+                                  TRUE ~ "Not stated"))
+```
+
+
+```{r}
+#https://www.statmethods.net/input/dates.html
+col <- col %>% 
+  mutate(COLLISION_DATE = as.Date(COLLISION_DATE))
+#col %>% 
+  #mutate(COLLISION_TIME = strptime(COLLISION_TIME,format='%H%M'))
+```
+
+## Demographic EDA
+
+The first research goal is to understand various discrepancies in demographics for involvement in all crash types.
+
+This plot suggests that younger drivers are more likely to be at fault for a crash, as the median age for drivers at fault was much lower than for those not at fault. This may be explained by the fact that younger drivers are less experienced and more likely to end up in dangerous driving situations.
+
+```{r}
+parties %>% 
+  filter(PARTY_TYPE == 1) %>% 
+  filter(PARTY_SEX == "M" | PARTY_SEX == "F") %>% 
+  filter(PARTY_AGE < 100 & PARTY_AGE >= 15) %>% 
+  ggplot(mapping = aes(y = PARTY_AGE, x = AT_FAULT)) + geom_boxplot() + labs(title = "Younger Drivers are More Likely to be At Fault for Traffic Accidents", x = "Party Was at Fault", y = "Party Age")
+```
+
+We also see a difference amongst genders in traffic collision outcomes. For drivers not at fault for collisions, men were involved in about 10% more traffic accidents than women. However, when the driver was at fault, the proportion of men was about 18% higher than  the proportion of women responsible for accidents. The reason for this discrepancy is not immediately clear. 
+
+```{r}
+table <- parties %>% 
+  filter(PARTY_TYPE == 1) %>% 
+  group_by(AT_FAULT) %>% 
+  count(PARTY_SEX) %>% 
+  mutate(Percent = round(n/sum(n) * 100, 2))  %>% 
+  filter(PARTY_SEX == "F" | PARTY_SEX == "M") %>% 
+  rename("Count" = n)
+kable(table, format = "markdown")
+```
+
+```{r}
+parties <- parties %>% 
+  mutate(RACE = case_when(RACE == "A" ~ "Asian",
+                          RACE == "B" ~ "Black",
+                          RACE == "W" ~ "White",
+                          RACE == "H" ~ "Hispanic",
+                          RACE == "O" ~ "Other",
+                          TRUE ~ "Not stated"))
+```       
+
+Finally, we examine race and collision involvement. This graph shows a histogram of what races were involved in reported traffic collisions in 2019. The plot indicates that Hispanic and White people are involved in the most crashes. However, comparing this distribution to recent LA County Census data [5], it seems that people who were identified as Asian or White may be slightly underrepresented as they make up 15.4% and 26.1% of the population demographic, respectively while being involved in 7.7% and 21.1% of accidents. Black people may conversely be overrepresented, being involved in 12.0% of accidents but only representing 9.0% of the LA population.
+
+```{r}
+parties %>% 
+  ggplot(mapping = aes(x = RACE)) + geom_bar() + labs(title = "Whites and Hispanics Are Most Likely to be Involved in an Accident", x = "Race", y = "Count")
+```
+
+```{r, eval = FALSE}
+parties %>% 
+  filter(PARTY_TYPE == 1) %>% 
+  count(RACE) %>% 
+  mutate(Percent = round(n/sum(n)*100, 1)) %>% 
+  rename("Count" = n)
+```
+
+## Fatal/Severe Accident EDA
+
+The goal of this EDA section is to better understand the data set and which factors contributed specifically to fatal and severe accidents. To better address this research goal, we created a binary variable that indicates whether or not an accident was considered to be Fatal/Severe or not. We felt that it was an appropriate choice to examine both severe and fatal crashes together due to the fact that other analyses use the same definition [2], and also because the number of fatal crashes is very small compared to the number of other accidents that it may not informative to look only at fatal accidents, as evident in the figure below.
+
+```{r}
+col %>% 
+  ggplot(mapping = aes(x = COLLISION_SEVERITY)) + geom_bar() + labs(x = "Collision Severity", y = "Count", title = "The Majority of 2019 Accidents Resulted in Injuries with a Complaint of Pain")
+```
+
+It is worth noting that crashes that resulted in property damage only (PDO) are not recorded in this dataset. That being said, it remains that only a minority of crashes are fatal or result in severe injury (about 2.54% of total accidents). The CHP defines a severe injury as "an injury other than fatal which results in a severe laceration, a broken extremity, crush injury, suspected skull, chest or abdominal injury other than bruises or minor lacerations, significant burns, unconsciousness, paralysis or any combination thereof [2]." 
+
+
+```{r, eval = FALSE}
+col %>% 
+  count(COL_SF) %>% 
+  mutate(prop = n/sum(n)*100)
+```
+
+In terms of collision type, it seems that hitting an object is the most common collision type for accidents that end up being severe/fatal, with head-on collisions being the second most common. This is an interesting finding, as hitting an object means that another driver may not be involved and calls for further examination of driver sobriety and other characteristics that may explain this type of collision. 
+
+```{r}
+col %>% 
+  ggplot(mapping = aes(x = TYPE_OF_COLLISION, fill = COL_SF)) + geom_bar(position = "fill") + labs(title = "Hitting an Object Is the Most Common Type of Collision for Fatal/Severe Accidents", x = "Type of Collision", y = "Count")
+```
+
+
+Collisions are often listed as PCF (primary collision factor) violations, which give information as to why the crash occurred. This plot shows that the most common PCF codes that were listed for fatal and severe collisions were 01- Driving or Bicycling Under the Influence of Alcohol or Drug, 05- Wrong Side of Road, and 18- Other Than Driver (or Pedestrian). This is in agreement with previous studies, which show that sobriety is an important factor in explaining fatal/severe accidents.
+
+```{r}
+col %>% 
+  ggplot(mapping = aes(x = PCF_VIOL_CATEGORY, fill = COL_SF)) + geom_bar(position = "fill") + labs(title = "Factors Other Than Driver and Driving Under the Influence were the\nTwo Most Common PCFs in Fatal/Severe Accidents", x = "PCF Code", y = "Count")
+```
+
+
+## References
+
+[1] KABC. “LAPD Urges Safe Driving after Releasing Staggering Data on Traffic Deaths across City in 2019.” ABC7 Los Angeles, 30 Dec. 2019, https://abc7.com/5799520/.
+
+[2] Vision Zero - Los Angeles County. https://pw.lacounty.gov/visionzero/. Accessed 1 Mar. 2021.
+
+[3] Retallack, Angus Eugene, and Bertram Ostendorf. “Current Understanding of the Effects of Congestion on Traffic Accidents.” International Journal of Environmental Research and Public Health, vol. 16, no. 18, Sept. 2019. PubMed Central, doi:10.3390/ijerph16183400.
+
+[4] The Economic and Societal Impact Of Motor Vehicle Crashes, 2010 (Revised). DOT HS 812 013, National Highway Traffic Safety Administration, May 2015.
+
+[5] U.S. Census Bureau QuickFacts: Los Angeles County, California. https://www.census.gov/quickfacts/fact/table/losangelescountycalifornia/RHI725219#RHI725219. Accessed 1 Mar. 2021.
